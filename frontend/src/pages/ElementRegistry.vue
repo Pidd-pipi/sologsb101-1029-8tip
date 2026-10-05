@@ -7,9 +7,10 @@ import { Plus } from '@element-plus/icons-vue'
 import FilterBar from '@/components/common/FilterBar.vue'
 import StatBadge from '@/components/common/StatBadge.vue'
 import EmptyPanel from '@/components/common/EmptyPanel.vue'
-import { db, type ElementRow, type RecordRow, type SceneRow } from '@/utils/db'
+import { db, type ElementRow, type GroupRow, type RecordRow, type SceneRow } from '@/utils/db'
 import { useIdbTable } from '@/hooks/useIdbTable'
 import { useElementStore } from '@/stores/elementStore'
+import { useGroupStore } from '@/stores/groupStore'
 import { ELEMENT_CATEGORIES, createEmptyElement, type Element, type ElementCategory } from '@/types/element'
 import type { FilterSelectConfig, FilterModel } from '@/types/filter'
 import { filtersToQuery } from '@/utils/query'
@@ -18,12 +19,14 @@ import { ROUTES } from '@/router'
 const route = useRoute()
 const router = useRouter()
 const store = useElementStore()
+const groupStore = useGroupStore()
 
 const { rows: elements, ready } = useIdbTable<ElementRow>(() => db.elements, {
   compare: (a, b) => a.category.localeCompare(b.category, 'zh-Hans-CN') || a.name.localeCompare(b.name, 'zh-Hans-CN')
 })
 const { rows: scenes } = useIdbTable<SceneRow>(() => db.scenes, { compare: (a, b) => a.shootOrder - b.shootOrder })
 const { rows: records } = useIdbTable<RecordRow>(() => db.records)
+const { rows: groups } = useIdbTable<GroupRow>(() => db.groups, { compare: (a, b) => b.updatedAt - a.updatedAt })
 
 const selects = computed<FilterSelectConfig[]>(() => [
   { key: 'categories', label: '类别', options: ELEMENT_CATEGORIES.map((item) => ({ label: item, value: item })) },
@@ -42,6 +45,69 @@ function sceneLabel(sceneId: string): string {
 /** 该要素已有多少次现场记录 */
 function recordCountOf(elementId: string): number {
   return records.value.filter((item) => item.elementId === elementId).length
+}
+
+/** 该要素所属的接戏组（同一场次同名要素只能属于一个组） */
+function groupOf(elementId: string): GroupRow | null {
+  return groups.value.find((item) => item.elementIds.includes(elementId)) ?? null
+}
+
+/** 可挂接的接戏组：类别一致、容量未满、且要素尚未属于任何组 */
+function attachableGroups(element: ElementRow): GroupRow[] {
+  if (groupOf(element.id)) return []
+  return groups.value.filter(
+    (item) => item.category === element.category && item.sceneIds.length < item.capacity
+  )
+}
+
+/* ------------------------------ 挂接到接戏组 ------------------------------ */
+const attachDialog = ref(false)
+const attachTarget = ref<ElementRow | null>(null)
+const attachGroupId = ref('')
+const attachExpectedRevision = ref(0)
+
+function openAttach(element: ElementRow): void {
+  attachTarget.value = element
+  const options = attachableGroups(element)
+  if (options.length === 0) {
+    ElMessage.info('没有可挂接的接戏组（需类别一致且容量未满），可到接戏组页新建')
+    return
+  }
+  attachGroupId.value = options[0].id
+  attachExpectedRevision.value = options[0].revision
+  attachDialog.value = true
+}
+
+async function submitAttach(): Promise<void> {
+  if (!attachTarget.value || !attachGroupId.value) return
+  const group = groups.value.find((item) => item.id === attachGroupId.value)
+  try {
+    await groupStore.attach(attachGroupId.value, attachTarget.value.id, attachExpectedRevision.value, {
+      elementName: attachTarget.value.name,
+      sceneId: attachTarget.value.sceneId,
+      groupName: group?.name ?? ''
+    })
+    attachDialog.value = false
+    ElMessage.success('要素已挂接到接戏组')
+  } catch (error) {
+    if (error instanceof Error && error.name === 'VersionConflictError') {
+      ElMessage.error('挂接未生效：接戏组已被其他页签更新，草稿已保留')
+    } else {
+      ElMessage.error(error instanceof Error ? error.message : '挂接失败')
+    }
+  }
+}
+
+async function detach(element: ElementRow): Promise<void> {
+  const group = groupOf(element.id)
+  if (!group) return
+  try {
+    await ElMessageBox.confirm(`从接戏组「${group.name}」移出该要素？`, '移出确认', { type: 'warning' })
+  } catch {
+    return
+  }
+  await groupStore.detach(group.id, element.id)
+  ElMessage.success('要素已移出接戏组')
 }
 
 const filtered = computed(() => {
@@ -241,9 +307,19 @@ watch(
           <el-table-column label="现场记录" width="100" align="right">
             <template #default="{ row }">{{ recordCountOf(row.id) }} 次</template>
           </el-table-column>
-          <el-table-column label="操作" width="240" fixed="right">
+          <el-table-column label="接戏组" width="130">
+            <template #default="{ row }">
+              <el-tag v-if="groupOf(row.id)" size="small" type="success" effect="plain">
+                {{ groupOf(row.id)?.name }}
+              </el-tag>
+              <span v-else class="muted">未接组</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="300" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" size="small" @click="gotoLog(row)">去记录</el-button>
+              <el-button link type="primary" size="small" @click="openAttach(row)" :disabled="Boolean(groupOf(row.id))">接组</el-button>
+              <el-button link type="warning" size="small" @click="detach(row)" :disabled="!groupOf(row.id)">移组</el-button>
               <el-button link size="small" @click="toggleCritical(row)">{{ row.critical ? '取消关键' : '设为关键' }}</el-button>
               <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
               <el-button link type="danger" size="small" @click="remove(row)">删除</el-button>
@@ -281,6 +357,31 @@ watch(
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="submit">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="attachDialog" title="挂接到接戏组" width="520px">
+      <el-form label-width="100px">
+        <el-form-item label="要素">
+          <span>{{ attachTarget?.name }}（{{ attachTarget?.category }}）</span>
+        </el-form-item>
+        <el-form-item label="选择接戏组">
+          <el-select v-model="attachGroupId" class="full" placeholder="选择要挂接的接戏组">
+            <el-option
+              v-for="item in attachableGroups(attachTarget as ElementRow)"
+              :key="item.id"
+              :label="`${item.name}（${item.sceneIds.length}/${item.capacity} 场）`"
+              :value="item.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="并发版本">
+          <span class="muted">草稿基于组 revision v{{ attachExpectedRevision }}；若提交前组被其他页签更新，本次挂接将被拒绝。</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="attachDialog = false">取消</el-button>
+        <el-button type="primary" @click="submitAttach">挂接</el-button>
       </template>
     </el-dialog>
   </div>

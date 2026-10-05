@@ -125,6 +125,7 @@ watch(filters, (value) => {
       <StatBadge label="未解决" :value="totals.open" suffix="条" icon="WarningFilled" tone="danger" />
       <StatBadge label="已解决" :value="totals.resolved" suffix="条" icon="Grid" tone="success" />
       <StatBadge label="阻断级" :value="totals.blocking" suffix="条" icon="WarningFilled" tone="warning" />
+      <StatBadge label="接戏组" :value="report?.summary.groupCount ?? 0" suffix="组" icon="DataLine" tone="info" />
       <StatBadge label="风险分" :value="totals.risk" suffix="分" icon="TrendCharts" tone="info" />
     </div>
 
@@ -172,6 +173,36 @@ watch(filters, (value) => {
         </el-table-column>
         <el-table-column prop="resolvedConflictCount" label="已解决" width="90" align="right" />
         <el-table-column prop="shootDayCount" label="拍摄日" width="90" align="right" />
+      </el-table>
+    </el-card>
+
+    <el-card v-if="report" shadow="never">
+      <template #header>
+        <div class="card-title">
+          <span>接戏组核对小结</span>
+          <span class="muted">按接戏组汇总 · 共 {{ report.summary.groupRows.length }} 组</span>
+        </div>
+      </template>
+      <el-table :data="report.summary.groupRows" border stripe>
+        <el-table-column prop="name" label="接戏组" min-width="160" />
+        <el-table-column prop="category" label="类别" width="90" />
+        <el-table-column prop="baselineState" label="组内基准" min-width="200" />
+        <el-table-column label="挂接场次" width="100" align="right">
+          <template #default="{ row }">{{ row.sceneCount }} / {{ row.capacity }}</template>
+        </el-table-column>
+        <el-table-column prop="elementCount" label="成员要素" width="100" align="right" />
+        <el-table-column label="组内差异" width="100" align="right">
+          <template #default="{ row }">
+            <el-tag :type="row.openDiffCount > 0 ? 'danger' : 'success'" size="small" effect="plain">
+              {{ row.openDiffCount }} / {{ row.diffCount }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="最近比对" width="170">
+          <template #default="{ row }">
+            {{ row.lastDiffAt ? new Date(row.lastDiffAt).toLocaleString('zh-CN', { hour12: false }) : '尚未比对' }}
+          </template>
+        </el-table-column>
       </el-table>
     </el-card>
 

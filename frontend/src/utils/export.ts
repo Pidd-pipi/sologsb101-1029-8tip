@@ -7,8 +7,9 @@ import type { Element } from '../types/element'
 import type { ShootDay } from '../types/shootDay'
 import type { Record as ContinuityRecord } from '../types/record'
 import type { Conflict } from '../types/conflict'
+import type { ContinuityGroup } from '../types/group'
 import { SEVERITY_WEIGHT } from './diff'
-import { DB_NAME, DB_SCHEMA_VERSION, listConflicts, listElements, listRecords, listScenes, listShootDays } from './db'
+import { DB_NAME, DB_SCHEMA_VERSION, listConflicts, listElements, listGroups, listRecords, listScenes, listShootDays } from './db'
 import { nowIso } from './uuid'
 
 /** 单个场次的核对小结 */
@@ -26,6 +27,26 @@ export interface SceneReportRow {
   shootDayCount: number
 }
 
+/** 单个接戏组的核对小结（报告按接戏组汇总） */
+export interface GroupReportRow {
+  groupId: string
+  name: string
+  category: string
+  baselineState: string
+  /** 挂接场次 */
+  sceneCount: number
+  /** 容量上限 */
+  capacity: number
+  /** 成员要素数 */
+  elementCount: number
+  /** 组内差异条数（按严重程度加权） */
+  diffCount: number
+  /** 未解决差异条数 */
+  openDiffCount: number
+  /** 最近比对时间 */
+  lastDiffAt: number
+}
+
 /** 连戏核对报告 */
 export interface ContinuityReport {
   name: string
@@ -33,12 +54,14 @@ export interface ContinuityReport {
   exportedAt: string
   scenes: Scene[]
   elements: Element[]
+  groups: ContinuityGroup[]
   shootDays: ShootDay[]
   records: ContinuityRecord[]
   conflicts: Conflict[]
   summary: {
     sceneCount: number
     elementCount: number
+    groupCount: number
     recordCount: number
     openConflictCount: number
     blockedConflictCount: number
@@ -46,6 +69,8 @@ export interface ContinuityReport {
     /** 未解决冲突最多的场次 */
     riskiestSceneNo: string
     rows: SceneReportRow[]
+    /** 按接戏组汇总的小结行 */
+    groupRows: GroupReportRow[]
   }
 }
 
@@ -61,9 +86,10 @@ function stripRevision<T extends WithRevision>(row: T): T {
 
 /** 汇总整份连戏核对报告 */
 export async function buildReport(): Promise<ContinuityReport> {
-  const [scenes, elements, shootDays, records, conflicts] = await Promise.all([
+  const [scenes, elements, groups, shootDays, records, conflicts] = await Promise.all([
     listScenes(),
     listElements(),
+    listGroups(),
     listShootDays(),
     listRecords(),
     listConflicts()
@@ -88,6 +114,23 @@ export async function buildReport(): Promise<ContinuityReport> {
     }
   })
 
+  /** 按接戏组汇总：组内成员要素相关的差异条数 */
+  const groupRows: GroupReportRow[] = groups.map((group) => {
+    const memberConflicts = conflicts.filter((item) => group.elementIds.includes(item.elementId))
+    return {
+      groupId: group.id,
+      name: group.name,
+      category: group.category,
+      baselineState: group.baselineState,
+      sceneCount: group.sceneIds.length,
+      capacity: group.capacity,
+      elementCount: group.elementIds.length,
+      diffCount: memberConflicts.length,
+      openDiffCount: memberConflicts.filter((item) => item.state === '待确认').length,
+      lastDiffAt: group.lastDiffAt
+    }
+  })
+
   const riskiest = [...rows].sort(
     (a, b) => b.openConflictCount - a.openConflictCount || b.criticalElementCount - a.criticalElementCount
   )[0]
@@ -100,18 +143,21 @@ export async function buildReport(): Promise<ContinuityReport> {
     exportedAt: nowIso(),
     scenes: scenes.map(stripRevision),
     elements: elements.map(stripRevision),
+    groups: groups.map(stripRevision),
     shootDays: shootDays.map(stripRevision),
     records: records.map(stripRevision),
     conflicts: conflicts.map(stripRevision),
     summary: {
       sceneCount: scenes.length,
       elementCount: elements.length,
+      groupCount: groups.length,
       recordCount: records.length,
       openConflictCount: openConflicts.length,
       blockedConflictCount: openConflicts.filter((item) => item.severity === '阻断').length,
       resolvedConflictCount: conflicts.filter((item) => item.state === '已解决').length,
       riskiestSceneNo: riskiest ? riskiest.sceneNo : '—',
-      rows
+      rows,
+      groupRows
     }
   }
 }
@@ -141,6 +187,7 @@ export function parseReport(text: string): ContinuityReport {
   if (typeof candidate.schemaVersion !== 'number') throw new Error('缺少 schemaVersion 字段')
   if (!Array.isArray(candidate.scenes)) throw new Error('scenes 必须是数组')
   if (!Array.isArray(candidate.conflicts)) throw new Error('conflicts 必须是数组')
+  if (candidate.groups !== undefined && !Array.isArray(candidate.groups)) throw new Error('groups 必须是数组')
   return candidate as ContinuityReport
 }
 

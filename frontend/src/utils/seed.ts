@@ -1,10 +1,12 @@
 /**
  * 首次打开应用时灌入的演示数据
- * 只在 scenes 表为空时执行。场次 → 连戏要素 → 拍摄日 → 现场记录 → 连戏差异 三层互相引用，
+ * 只在 scenes 表为空时执行。场次 → 连戏要素 → 接戏组 → 拍摄日 → 现场记录 → 连戏差异 互相引用，
  * 并预留 1 条「阻断/待确认」与 1 条「轻微/待确认」差异，保证差异页与报告页有内容可看。
+ * 接戏组：每个要素一个独立组（模拟旧数据升级），并把跨场复用的「女主蓝色风衣」接成一组。
  */
-import type { SceneRow, ElementRow, ShootDayRow, RecordRow, ConflictRow } from './db'
+import type { SceneRow, ElementRow, ShootDayRow, RecordRow, ConflictRow, GroupRow } from './db'
 import { db, ROW_REVISION } from './db'
+import { GROUP_CAPACITY_LIMIT } from '../types/group'
 
 function rev<T>(row: T): T & { revision: number; createdAt: number; updatedAt: number } {
   const now = Date.now()
@@ -98,6 +100,16 @@ const ELEMENTS: Array<Omit<ElementRow, 'revision' | 'createdAt' | 'updatedAt'>> 
     initialState: '全家福相框右下角卷边',
     owner: '陈设组-孟舟',
     critical: false
+  },
+  {
+    // 跨场复用：同一件「女主蓝色风衣」在 sc-003 再次出现，与 el-001 接成一组
+    id: 'el-007',
+    sceneId: 'sc-003',
+    category: '服装',
+    name: '女主蓝色风衣',
+    initialState: '深蓝风衣，第二颗扣子缺失',
+    owner: '服化组-林岚',
+    critical: true
   }
 ]
 
@@ -137,7 +149,9 @@ const RECORDS: Array<Omit<RecordRow, 'revision' | 'createdAt' | 'updatedAt'>> = 
   { id: 'rec-006', shootDayId: 'sd-002', elementId: 'el-003', sceneId: 'sc-001', takeNo: '7/2', currentState: '高马尾，无碎发', photoNote: '侧脸发际', recordedBy: '苏晚' },
   { id: 'rec-007', shootDayId: 'sd-002', elementId: 'el-006', sceneId: 'sc-003', takeNo: '7/5', currentState: '全家福相框右下角卷边', photoNote: '墙面全景', recordedBy: '苏晚' },
   { id: 'rec-008', shootDayId: 'sd-003', elementId: 'el-004', sceneId: 'sc-002', takeNo: '9/1', currentState: '编号 A-17 木箱，右上角有破损', photoNote: '木箱标识', recordedBy: '苏晚' },
-  { id: 'rec-009', shootDayId: 'sd-003', elementId: 'el-005', sceneId: 'sc-002', takeNo: '9/1', currentState: '深灰夹克，左袖有油污', photoNote: '男主半身', recordedBy: '苏晚' }
+  { id: 'rec-009', shootDayId: 'sd-003', elementId: 'el-005', sceneId: 'sc-002', takeNo: '9/1', currentState: '深灰夹克，左袖有油污', photoNote: '男主半身', recordedBy: '苏晚' },
+  // 跨场复用「女主蓝色风衣」在 sc-003 的现场状态：扣子数与袖口都与 sc-001 不同，供接戏组比对
+  { id: 'rec-010', shootDayId: 'sd-002', elementId: 'el-007', sceneId: 'sc-003', takeNo: '7/5', currentState: '深蓝风衣，第二颗扣子缺失，袖口翻起', photoNote: '卧室全身（风衣）', recordedBy: '苏晚' }
 ]
 
 const CONFLICTS: Array<Omit<ConflictRow, 'revision' | 'createdAt' | 'updatedAt'>> = [
@@ -176,11 +190,91 @@ const CONFLICTS: Array<Omit<ConflictRow, 'revision' | 'createdAt' | 'updatedAt'>
   }
 ]
 
-/** 灌入演示数据（场次 → 要素 → 拍摄日 → 现场记录 → 连戏差异） */
+/**
+ * 接戏组：跨场复用的要素接成一组（只认一份基准），其余每个要素一个独立组。
+ * 「女主蓝色风衣」跨 sc-001 / sc-003，接成多场组；其余为单场独立组（模拟旧数据升级）。
+ */
+const GROUPS: Array<Omit<GroupRow, 'revision' | 'createdAt' | 'updatedAt'>> = [
+  {
+    id: 'grp-001',
+    name: '女主蓝色风衣',
+    category: '服装',
+    baselineState: '深蓝风衣，第二颗扣子缺失',
+    baselineNote: '以第 12A 场（sc-001）初始状态为基准',
+    elementIds: ['el-001', 'el-007'],
+    sceneIds: ['sc-001', 'sc-003'],
+    capacity: GROUP_CAPACITY_LIMIT,
+    diffFingerprint: '',
+    lastDiffAt: 0
+  },
+  {
+    id: 'grp-002',
+    name: '铜制台灯',
+    category: '道具',
+    baselineState: '铜制台灯，灯罩左下有裂纹',
+    baselineNote: '旧版单场要素升级为独立接戏组',
+    elementIds: ['el-002'],
+    sceneIds: ['sc-001'],
+    capacity: GROUP_CAPACITY_LIMIT,
+    diffFingerprint: '',
+    lastDiffAt: 0
+  },
+  {
+    id: 'grp-003',
+    name: '女主发型',
+    category: '妆发',
+    baselineState: '低盘发，右侧留碎发',
+    baselineNote: '旧版单场要素升级为独立接戏组',
+    elementIds: ['el-003'],
+    sceneIds: ['sc-001'],
+    capacity: GROUP_CAPACITY_LIMIT,
+    diffFingerprint: '',
+    lastDiffAt: 0
+  },
+  {
+    id: 'grp-004',
+    name: '编号木箱',
+    category: '道具',
+    baselineState: '编号 A-17 木箱，右上角有破损',
+    baselineNote: '旧版单场要素升级为独立接戏组',
+    elementIds: ['el-004'],
+    sceneIds: ['sc-002'],
+    capacity: GROUP_CAPACITY_LIMIT,
+    diffFingerprint: '',
+    lastDiffAt: 0
+  },
+  {
+    id: 'grp-005',
+    name: '男主夹克',
+    category: '服装',
+    baselineState: '深灰夹克，左袖有油污',
+    baselineNote: '旧版单场要素升级为独立接戏组',
+    elementIds: ['el-005'],
+    sceneIds: ['sc-002'],
+    capacity: GROUP_CAPACITY_LIMIT,
+    diffFingerprint: '',
+    lastDiffAt: 0
+  },
+  {
+    id: 'grp-006',
+    name: '墙上全家福',
+    category: '陈设',
+    baselineState: '全家福相框右下角卷边',
+    baselineNote: '旧版单场要素升级为独立接戏组',
+    elementIds: ['el-006'],
+    sceneIds: ['sc-003'],
+    capacity: GROUP_CAPACITY_LIMIT,
+    diffFingerprint: '',
+    lastDiffAt: 0
+  }
+]
+
+/** 灌入演示数据（场次 → 要素 → 接戏组 → 拍摄日 → 现场记录 → 连戏差异） */
 export async function seedDatabase(): Promise<void> {
-  await db.transaction('rw', [db.scenes, db.elements, db.shootDays, db.records, db.conflicts], async () => {
+  await db.transaction('rw', [db.scenes, db.elements, db.groups, db.shootDays, db.records, db.conflicts], async () => {
     await db.scenes.bulkPut(SCENES.map(rev))
     await db.elements.bulkPut(ELEMENTS.map(rev))
+    await db.groups.bulkPut(GROUPS.map(rev))
     await db.shootDays.bulkPut(SHOOT_DAYS.map(rev))
     await db.records.bulkPut(RECORDS.map(rev))
     await db.conflicts.bulkPut(CONFLICTS.map(rev))
