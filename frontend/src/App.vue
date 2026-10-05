@@ -49,7 +49,7 @@ onMounted(() => {
       <div class="app-aside__foot">
         <div>本地库 {{ dbName }} · v{{ schemaVersion }}</div>
         <div>场次 {{ counts.scenes ?? 0 }} · 要素 {{ counts.elements ?? 0 }} · 拍摄日 {{ counts.shootDays ?? 0 }}</div>
-        <div>记录 {{ counts.records ?? 0 }} · 差异 {{ counts.conflicts ?? 0 }}</div>
+        <div>接戏组 {{ counts.continuityGroups ?? 0 }} · 记录 {{ counts.records ?? 0 }} · 差异 {{ counts.conflicts ?? 0 }}</div>
       </div>
     </el-aside>
 

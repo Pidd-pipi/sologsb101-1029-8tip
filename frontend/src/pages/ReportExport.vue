@@ -43,6 +43,18 @@ const rows = computed(() => {
   )
 })
 
+/** 报告按接戏组汇总（关键字同时匹配组名 / 基准 / 场号） */
+const groupRowsFiltered = computed(() => {
+  const list = report.value?.summary.groupRows ?? []
+  const keyword = String(filters.value.keyword ?? '').trim().toLowerCase()
+  if (!keyword) return list
+  return list.filter((row) =>
+    `${row.groupName} ${row.baselineState} ${row.owner} ${row.scenes.map((scene) => scene.sceneNo).join(' ')}`
+      .toLowerCase()
+      .includes(keyword)
+  )
+})
+
 async function refresh(): Promise<void> {
   report.value = await buildReport()
   dbCounts.value = await countAll()
@@ -175,6 +187,53 @@ watch(filters, (value) => {
       </el-table>
     </el-card>
 
+    <el-card v-if="report" shadow="never" class="group-report-card">
+      <template #header>
+        <div class="card-title">
+          <span>按接戏组汇总</span>
+          <span class="muted">
+            接戏组 {{ report.summary.groupCount }} · 跨场次组 {{ report.summary.crossSceneGroupCount }} ·
+            基准偏离 {{ groupRowsFiltered.reduce((s, r) => s + r.baselineDriftCount, 0) }} 处 ·
+            挂接冲突 {{ report.summary.pendingDraftConflictCount }} 条
+          </span>
+        </div>
+      </template>
+      <el-table :data="groupRowsFiltered" border stripe>
+        <el-table-column prop="groupName" label="接戏组" min-width="180" />
+        <el-table-column prop="category" label="类别" width="80" />
+        <el-table-column label="基准状态" min-width="200">
+          <template #default="{ row }">
+            <span>{{ row.baselineState }}</span>
+            <div class="muted">v{{ row.version }} · {{ row.auto ? '单场独立组' : '接续组' }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="挂接场次" min-width="180">
+          <template #default="{ row }">
+            <el-tag v-for="scene in row.scenes" :key="scene.sceneId" size="small" effect="plain" class="scene-chip">
+              第 {{ scene.sceneNo }} 场
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="sceneCount" label="场次数" width="80" align="right" />
+        <el-table-column prop="elementCount" label="要素" width="70" align="right" />
+        <el-table-column prop="recordCount" label="记录" width="70" align="right" />
+        <el-table-column label="未解决 / 阻断" width="110" align="right">
+          <template #default="{ row }">
+            <el-tag :type="row.openConflictCount > 0 ? 'danger' : 'success'" size="small" effect="plain">
+              {{ row.openConflictCount }} / {{ row.blockingConflictCount }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="基准偏离" width="90" align="right">
+          <template #default="{ row }">
+            <el-tag :type="row.baselineDriftCount > 0 ? 'warning' : 'success'" size="small" effect="plain">
+              {{ row.baselineDriftCount }}
+            </el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
     <el-row :gutter="16">
       <el-col :span="12">
         <el-card shadow="never">
@@ -186,7 +245,8 @@ watch(filters, (value) => {
             <el-descriptions-item label="结构版本">v{{ DB_SCHEMA_VERSION }}</el-descriptions-item>
             <el-descriptions-item label="场次/要素">{{ dbCounts.scenes ?? 0 }} / {{ dbCounts.elements ?? 0 }}</el-descriptions-item>
             <el-descriptions-item label="拍摄日/记录">{{ dbCounts.shootDays ?? 0 }} / {{ dbCounts.records ?? 0 }}</el-descriptions-item>
-            <el-descriptions-item label="差异">{{ dbCounts.conflicts ?? 0 }}</el-descriptions-item>
+            <el-descriptions-item label="接戏组">{{ dbCounts.continuityGroups ?? 0 }}</el-descriptions-item>
+            <el-descriptions-item label="差异 / 挂接冲突">{{ dbCounts.conflicts ?? 0 }} / {{ dbCounts.draftConflicts ?? 0 }}</el-descriptions-item>
             <el-descriptions-item label="导出时间">{{ report?.exportedAt.slice(0, 19).replace('T', ' ') ?? '—' }}</el-descriptions-item>
           </el-descriptions>
           <div class="btn-row">
@@ -214,5 +274,13 @@ watch(filters, (value) => {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
+}
+
+.group-report-card {
+  margin-top: 16px;
+}
+
+.scene-chip {
+  margin: 2px 4px 2px 0;
 }
 </style>

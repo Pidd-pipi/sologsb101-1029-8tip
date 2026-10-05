@@ -3,11 +3,18 @@ export type ConflictSeverity = '轻微' | '需处理' | '阻断'
 /** 差异处理状态 */
 export type ConflictState = '待确认' | '已解决'
 
-/** 连戏差异：同一要素两次现场记录之间的字段级偏差 */
+/**
+ * 连戏差异：同一接戏组（退化为单要素）两次现场记录之间的字段级偏差。
+ * 接戏组自动重算的差异带 groupId 且 managed=true，现场记录变化后立即失效重算。
+ */
 export interface Conflict {
   id: string
   /** 连戏要素 */
   elementId: string
+  /** 所属接戏组（单要素独立组时同样回填，便于按组汇总） */
+  groupId: string
+  /** 是否由接戏组自动重算托管（托管差异在数据变化时整体失效重算） */
+  managed: boolean
   /** 较早的记录 */
   recordIdA: string
   /** 较晚的记录 */
@@ -27,6 +34,6 @@ export interface Conflict {
 export const CONFLICT_SEVERITIES: ConflictSeverity[] = ['轻微', '需处理', '阻断']
 export const CONFLICT_STATES: ConflictState[] = ['待确认', '已解决']
 
-export function createEmptyConflict(): Omit<Conflict, 'id' | 'resolvedNote' | 'resolvedAt'> {
+export function createEmptyConflict(): Omit<Conflict, 'id' | 'resolvedNote' | 'resolvedAt' | 'groupId' | 'managed'> {
   return { elementId: '', recordIdA: '', recordIdB: '', diffDesc: '', severity: '轻微', state: '待确认' }
 }

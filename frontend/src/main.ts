@@ -6,11 +6,14 @@ import './styles/main.css'
 import App from './App.vue'
 import router from './router'
 import { initDatabase } from './utils/db'
+import { startAutoReconcile } from './utils/autoReconcile'
 
 /** 先打开本地库并播种演示数据，保证首屏每个页面打开都有内容 */
 async function bootstrap(): Promise<void> {
   try {
     await initDatabase()
+    // 现场记录变化后，接戏组按拍摄日、镜次排出的托管差异立即失效重算
+    startAutoReconcile()
   } catch (error) {
     // 本地库不可用时仍然渲染界面，页面内会给出可读的错误提示
     console.error('本地数据库初始化失败', error)

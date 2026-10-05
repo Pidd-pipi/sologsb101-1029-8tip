@@ -7,6 +7,7 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 export const ROUTES = {
   scenes: '/scenes',
   elements: '/elements',
+  groups: '/groups',
   shootdays: '/shootdays',
   conflicts: '/conflicts',
   report: '/report'
@@ -23,6 +24,7 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { path: ROUTES.scenes, label: '剧本场次', icon: '🎬', hint: '场次台账与拍摄顺序' },
   { path: ROUTES.elements, label: '连戏要素', icon: '👗', hint: '服装 / 道具 / 妆发 / 陈设' },
+  { path: ROUTES.groups, label: '接戏组', icon: '🔗', hint: '跨场次接续与统一基准' },
   { path: ROUTES.shootdays, label: '现场记录', icon: '📝', hint: '拍摄日与镜次记录' },
   { path: ROUTES.conflicts, label: '差异比对', icon: '⚠️', hint: '冲突提示与消解' },
   { path: ROUTES.report, label: '核对报告', icon: '📋', hint: '报告导出与版本查看' }
@@ -41,6 +43,12 @@ const routes: RouteRecordRaw[] = [
     name: 'elements',
     component: () => import('@/pages/ElementRegistry.vue'),
     meta: { title: '连戏要素登记' }
+  },
+  {
+    path: ROUTES.groups,
+    name: 'groups',
+    component: () => import('@/pages/ContinuityGroups.vue'),
+    meta: { title: '接戏组与跨场次接续' }
   },
   {
     path: ROUTES.shootdays,

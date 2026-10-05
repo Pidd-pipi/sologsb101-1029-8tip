@@ -8,7 +8,7 @@ import ConflictTag from '@/components/common/ConflictTag.vue'
 import StatBadge from '@/components/common/StatBadge.vue'
 import EmptyPanel from '@/components/common/EmptyPanel.vue'
 import FilterBar from '@/components/common/FilterBar.vue'
-import { db, type ConflictRow, type ElementRow, type RecordRow, type SceneRow, type ShootDayRow } from '@/utils/db'
+import { db, type ConflictRow, type ContinuityGroupRow, type ElementRow, type RecordRow, type SceneRow, type ShootDayRow } from '@/utils/db'
 import { useIdbTable } from '@/hooks/useIdbTable'
 import { useRecordStore } from '@/stores/recordStore'
 import { createEmptyShootDay, type ShootDay } from '@/types/shootDay'
@@ -27,6 +27,7 @@ const { rows: records } = useIdbTable<RecordRow>(() => db.records)
 const { rows: elements } = useIdbTable<ElementRow>(() => db.elements)
 const { rows: scenes } = useIdbTable<SceneRow>(() => db.scenes, { compare: (a, b) => a.shootOrder - b.shootOrder })
 const { rows: conflicts } = useIdbTable<ConflictRow>(() => db.conflicts)
+const { rows: groups } = useIdbTable<ContinuityGroupRow>(() => db.continuityGroups)
 
 const selects = computed<FilterSelectConfig[]>(() => [
   { key: 'sceneIds', label: '场次', options: scenes.value.map((item) => ({ label: `第 ${item.sceneNo} 场`, value: item.id })) },
@@ -40,6 +41,11 @@ function sceneLabel(sceneId: string): string {
 
 function elementOf(elementId: string): ElementRow | null {
   return elements.value.find((item) => item.id === elementId) ?? null
+}
+
+/** 该要素所属接戏组（组内只认一份基准） */
+function groupOfElement(elementId: string): ContinuityGroupRow | null {
+  return groups.value.find((item) => item.elementIds.includes(elementId)) ?? null
 }
 
 const currentDay = computed<ShootDayRow | null>(
@@ -187,12 +193,15 @@ function openEditRecord(record: RecordRow): void {
   recordDialog.value = true
 }
 
-/** 选中要素后自动带出所属场次与初始状态，减少手填 */
+/** 选中要素后自动带出所属场次；当前状态默认取所属接戏组的唯一基准 */
 function onElementChange(elementId: string): void {
   const element = elementOf(elementId)
   if (!element) return
   recordForm.sceneId = element.sceneId
-  if (!recordForm.currentState) recordForm.currentState = element.initialState
+  if (!recordForm.currentState) {
+    const group = groups.value.find((item) => item.elementIds.includes(elementId))
+    recordForm.currentState = group ? group.baselineState : element.initialState
+  }
 }
 
 async function submitRecord(): Promise<void> {
@@ -347,10 +356,13 @@ watch(currentDay, (day) => {
             @create="openCreateRecord"
           />
           <el-table v-else :data="dayRecords" stripe border>
-            <el-table-column label="连戏要素" min-width="170">
+            <el-table-column label="连戏要素" min-width="190">
               <template #default="{ row }">
                 <div>{{ elementOf(row.elementId)?.name ?? '要素已删除' }}</div>
                 <div class="muted">{{ elementOf(row.elementId)?.category ?? '—' }} · {{ elementOf(row.elementId)?.owner ?? '—' }}</div>
+                <el-tag v-if="groupOfElement(row.elementId)" size="small" type="primary" effect="plain" class="group-tag">
+                  🔗 {{ groupOfElement(row.elementId)?.name }}
+                </el-tag>
               </template>
             </el-table-column>
             <el-table-column label="场次" width="160">
@@ -489,5 +501,10 @@ watch(currentDay, (day) => {
   margin-top: 6px;
   font-size: 12px;
   color: #9aa5ad;
+}
+
+.group-tag {
+  margin-top: 2px;
+  max-width: 100%;
 }
 </style>

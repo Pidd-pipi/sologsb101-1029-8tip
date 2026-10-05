@@ -6,7 +6,7 @@ import { ref } from 'vue'
 import type { LocationQuery } from 'vue-router'
 import type { Element } from '@/types/element'
 import type { FilterModel } from '@/types/filter'
-import { putElement, removeElement, updateElement as updateElementRow, ROW_REVISION } from '@/utils/db'
+import { putElement, removeElement, updateElement as updateElementRow, ensureAutoGroups, db, ROW_REVISION } from '@/utils/db'
 import { createId } from '@/utils/uuid'
 import { queryToFilters } from '@/utils/query'
 
@@ -36,6 +36,8 @@ export const useElementStore = defineStore('element', () => {
     const now = Date.now()
     const id = createId('element')
     await putElement({ ...payload, id, revision: ROW_REVISION, createdAt: now, updatedAt: now })
+    // 新要素先落成独立接戏组，等待在接戏组页与其它场次挂接（与旧数据升级规则一致）
+    await db.transaction('rw', [db.elements, db.continuityGroups, db.conflicts], ensureAutoGroups)
     selectedElementId.value = id
     return id
   }
